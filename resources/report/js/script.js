@@ -1451,4 +1451,7 @@ require(requirements, function(response) {
        to window messages looking for a focus change. */
     loot.hasFocus = document.hasFocus();
     setInterval(checkFocus, 500);
+    if (!window.cefQuery) {
+        showMessageBox('info','LOOT: Example Mode', "This instance of LOOT's HTML user interface has been opened from outside LOOT.exe, and so cannot interact with LOOT's backend. Example content will be loaded, and any changes you make in this instance will have no effect on your LOOT or game installs.");
+    }
 });
