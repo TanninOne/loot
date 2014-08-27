@@ -243,6 +243,27 @@ function Plugin(obj) {
         });
     }
 
+    Plugin.prototype.toJSON = function() {
+        return {
+            __type: 'Plugin',
+            name: this.name,
+            crc: this.crc,
+            version: this.version,
+            isActive: this.isActive,
+            isDummy: this.isDummy,
+            loadsBSA: this.loadsBSA,
+
+            masterlist: this.masterlist,
+            userlist: this.userlist,
+
+            modPriority: this.modPriority,
+            isGlobalPriority: this.isGlobalPriority,
+            messages: this.messages,
+            tags: this.tags,
+            isDirty: this.isDirty,
+        };
+    }
+
     this.createCard();
     this.createListItem();
     Object.observe(this, this.observer);

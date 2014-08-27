@@ -340,14 +340,39 @@ var loot = {
     /* Returns a cefQuery as a Promise. */
     query: function(request) {
         return new Promise(function(resolve, reject) {
-            window.cefQuery({
-            request: request,
-            persistent: false,
-            onSuccess: resolve,
-            onFailure: function(errorCode, errorMessage) {
-                    reject(Error('Error code: ' + errorCode + '; ' + errorMessage))
+            if (window.cefQuery) {
+                window.cefQuery({
+                request: request,
+                persistent: false,
+                onSuccess: resolve,
+                onFailure: function(errorCode, errorMessage) {
+                        reject(Error('Error code: ' + errorCode + '; ' + errorMessage))
+                    }
+                });
+            } else {
+                /* Not loaded from in LOOT. Suppy dummy data. */
+                var json;
+                try {
+                    var json = JSON.parse(request);
+                } catch(e) {}
+                if (json && json.name == 'closeSettings') {
+                    resolve(dummy.installedGames);
+                } else if (request == 'getVersion') {
+                    resolve(dummy.version);
+                } else if (request == 'getLanguages') {
+                    resolve(dummy.languages);
+                } else if (request == 'getGameTypes') {
+                    resolve(dummy.gameTypes);
+                } else if (request == 'getInstalledGames') {
+                    resolve(dummy.installedGames);
+                } else if (request == 'getSettings') {
+                    resolve(dummy.settings);
+                } else if (request == 'getGameData') {
+                    resolve(dummy.game);
+                } else {
+                    resolve('null');
                 }
-            });
+            }
         });
     }
 };
@@ -674,7 +699,7 @@ function updateMasterlist(evt) {
     updateProgressDialog('Updating masterlist...');
     openProgressDialog();
     return loot.query('updateMasterlist').then(JSON.parse).then(function(result){
-        if (result == null) {
+        if (!result) {
             closeProgressDialog();
             return;
         }
@@ -877,22 +902,24 @@ function clearAllMetadata(evt) {
     showMessageDialog('Clear All Metadata', 'Are you sure you want to clear all existing user-added metadata from all plugins?', function(result){
         if (result) {
             loot.query('clearAllMetadata').then(JSON.parse).then(function(result){
-                /* Need to empty the UI-side user metadata. */
-                result.forEach(function(plugin){
-                    for (var i = 0; i < loot.game.plugins.length; ++i) {
-                        if (loot.game.plugins[i].name == plugin.name) {
-                            loot.game.plugins[i].userlist = undefined;
+                if (result) {
+                    /* Need to empty the UI-side user metadata. */
+                    result.forEach(function(plugin){
+                        for (var i = 0; i < loot.game.plugins.length; ++i) {
+                            if (loot.game.plugins[i].name == plugin.name) {
+                                loot.game.plugins[i].userlist = undefined;
 
-                            loot.game.plugins[i].modPriority = plugin.modPriority;
-                            loot.game.plugins[i].isGlobalPriority = plugin.isGlobalPriority;
-                            loot.game.plugins[i].messages = plugin.messages;
-                            loot.game.plugins[i].tags = plugin.tags;
-                            loot.game.plugins[i].isDirty = plugin.isDirty;
+                                loot.game.plugins[i].modPriority = plugin.modPriority;
+                                loot.game.plugins[i].isGlobalPriority = plugin.isGlobalPriority;
+                                loot.game.plugins[i].messages = plugin.messages;
+                                loot.game.plugins[i].tags = plugin.tags;
+                                loot.game.plugins[i].isDirty = plugin.isDirty;
 
-                            break;
+                                break;
+                            }
                         }
-                    }
-                });
+                    });
+                }
             }).catch(processCefError);
         }
     });
@@ -1401,7 +1428,16 @@ function checkFocus(){
 require.config({
     baseUrl: "js",
   });
-require(['marked', 'order!custom', 'order!plugin'], function(response) {
+var requirements = [
+    'marked',
+    'order!custom',
+    'order!plugin'
+];
+if (!window.cefQuery) {
+    /* Not loaded from LOOT.exe. */
+    requirements.push('dummy');
+}
+require(requirements, function(response) {
     marked = response;
     /* Make sure settings are what I want. */
     marked.setOptions({
