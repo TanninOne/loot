@@ -46,6 +46,7 @@
 #include <boost/log/trivial.hpp>
 #include <boost/log/expressions.hpp>
 #include <boost/log/utility/setup/file.hpp>
+#include <boost/log/utility/setup/console.hpp>
 #include <boost/log/utility/setup/common_attributes.hpp>
 #include <boost/log/support/date_time.hpp>
 
@@ -231,14 +232,50 @@ bool LOOT::OnInit() {
     BOOST_LOG_TRIVIAL(debug) << "Selecting game.";
     string target;
 
-    wxCmdLineEntryDesc cmdLineDesc[2];
+    wxCmdLineEntryDesc cmdLineDesc[7];
     cmdLineDesc[0].kind = wxCMD_LINE_OPTION;
     cmdLineDesc[0].shortName = "g";
     cmdLineDesc[0].longName = "game";
     cmdLineDesc[0].description = "The folder name of the game to run for.";
     cmdLineDesc[0].type = wxCMD_LINE_VAL_STRING;
     cmdLineDesc[0].flags = wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_NEEDS_SEPARATOR;
-    cmdLineDesc[1].kind = wxCMD_LINE_NONE;
+    cmdLineDesc[1].kind = wxCMD_LINE_OPTION;
+    cmdLineDesc[1].shortName = "gp";
+    cmdLineDesc[1].longName = "gamePath";
+    cmdLineDesc[1].description = "The absolute folder of the game to run for. Overrides detected path.";
+    cmdLineDesc[1].type = wxCMD_LINE_VAL_STRING;
+    cmdLineDesc[1].flags = wxCMD_LINE_PARAM_OPTIONAL | wxCMD_LINE_NEEDS_SEPARATOR;
+    cmdLineDesc[1].kind = wxCMD_LINE_OPTION;
+
+    cmdLineDesc[2].shortName = "u";
+    cmdLineDesc[2].longName = "unattended";
+    cmdLineDesc[2].description = "Don't display the ui, just sort the plugins and quit.";
+    cmdLineDesc[2].type = wxCMD_LINE_VAL_NONE;
+    cmdLineDesc[2].flags = wxCMD_LINE_PARAM_OPTIONAL;
+    cmdLineDesc[2].kind = wxCMD_LINE_SWITCH;
+
+    cmdLineDesc[3].shortName = "m";
+    cmdLineDesc[3].longName = "skipUpdateMasterlist";
+    cmdLineDesc[3].description = "Don't update the masterlist.";
+    cmdLineDesc[3].type = wxCMD_LINE_VAL_NONE;
+    cmdLineDesc[3].flags = wxCMD_LINE_PARAM_OPTIONAL;
+    cmdLineDesc[3].kind = wxCMD_LINE_SWITCH;
+
+    cmdLineDesc[4].shortName = "c";
+    cmdLineDesc[4].longName = "stdout";
+    cmdLineDesc[4].description = "Also log to console. Some messages from loot startup will not appear in the console.";
+    cmdLineDesc[4].type = wxCMD_LINE_VAL_NONE;
+    cmdLineDesc[4].flags = wxCMD_LINE_PARAM_OPTIONAL;
+    cmdLineDesc[4].kind = wxCMD_LINE_SWITCH;
+
+    cmdLineDesc[5].shortName = "r";
+    cmdLineDesc[5].longName = "noreport";
+    cmdLineDesc[5].description = "Disable opening the report. Instead, only a line with the report url will be printed to the log.";
+    cmdLineDesc[5].type = wxCMD_LINE_VAL_NONE;
+    cmdLineDesc[5].flags = wxCMD_LINE_PARAM_OPTIONAL;
+    cmdLineDesc[5].kind = wxCMD_LINE_SWITCH;
+
+    cmdLineDesc[6].kind = wxCMD_LINE_NONE;
 
     wxCmdLineParser parser(cmdLineDesc, argc, argv);
     wxString value;
@@ -255,6 +292,13 @@ bool LOOT::OnInit() {
         break;
     }
 
+    if (parser.Found("stdout")) {
+        auto sink = boost::log::add_console_log(std::cout,
+        	boost::log::keywords::auto_flush = true,
+        	boost::log::keywords::format = "%Message%");
+        sink->set_filter(boost::log::trivial::severity >= boost::log::trivial::info);
+    }
+
     size_t gameIndex(0);
     try {
         gameIndex = SelectGame(_settings, _games, target);
@@ -268,8 +312,18 @@ bool LOOT::OnInit() {
             nullptr);
         return false;
     }
-    BOOST_LOG_TRIVIAL(debug) << "Game selected is " << _games[gameIndex].Name();
 
+    if (parser.FoundSwitch("skipUpdateMasterlist")) {
+        _settings["Update Masterlist"] = false;
+    }
+    if (parser.FoundSwith("noreport")) {
+      _settings["Display Report"] = false;
+    }
+
+    BOOST_LOG_TRIVIAL(debug) << "Game selected is " << _games[gameIndex].Name();
+    if (parser.Found("gamePath", &value)) {
+        _games[gameIndex].SetPath(static_cast<std::string>(value.ToUTF8()));
+    }
     //Now that game is selected, initialise it.
     BOOST_LOG_TRIVIAL(debug) << "Initialising game-specific settings.";
     try {
@@ -314,8 +368,14 @@ bool LOOT::OnInit() {
     Launcher * launcher = new Launcher(wxT("LOOT"), _settings, _games, gameIndex, pos, size);
 
     launcher->SetIcon(wxIconLocation("LOOT.exe"));
-	launcher->Show();
-	SetTopWindow(launcher);
+    if (parser.FoundSwitch("unattended")) {
+        launcher->SortPlugins();
+        launcher->Close();
+    }
+    else {
+        launcher->Show();
+        SetTopWindow(launcher);
+    }
 
     return true;
 }
@@ -592,7 +652,10 @@ void Launcher::OnAbout(wxCommandEvent& event) {
 }
 
 void Launcher::OnSortPlugins(wxCommandEvent& event) {
+    SortPlugins();
+}
 
+void Launcher::SortPlugins() {
     BOOST_LOG_TRIVIAL(debug) << "Beginning sorting process.";
 
     list<loot::Message> messages;
@@ -745,19 +808,23 @@ void Launcher::OnSortPlugins(wxCommandEvent& event) {
     //Now a results report definitely exists.
     ViewButton->Enable(true);
 
-    BOOST_LOG_TRIVIAL(debug) << "Displaying report...";
-    //Load window size/pos settings.
-    wxSize size = wxDefaultSize;
-    wxPoint pos = wxDefaultPosition;
-    if (_settings["windows"] && _settings["windows"]["viewer"]) {
-        GetWindowSizePos(_settings["windows"]["viewer"], pos, size);
+    if (_settings["Display Report"].as<bool>()) {
+        BOOST_LOG_TRIVIAL(debug) << "Displaying report...";
+        //Load window size/pos settings.
+        wxSize size = wxDefaultSize;
+        wxPoint pos = wxDefaultPosition;
+        if (_settings["windows"] && _settings["windows"]["viewer"]) {
+            GetWindowSizePos(_settings["windows"]["viewer"], pos, size);
+        }
+
+        //Create viewer window.
+        Viewer *viewer = new Viewer(this, translate("LOOT: Report Viewer"), FromUTF8(ToFileURL(g_path_report.string() + "?data=" + _games[_currentGame].ReportDataPath().string())), pos, size, _settings);
+        viewer->Show();
+
+        BOOST_LOG_TRIVIAL(debug) << "Report display successful. Sorting process complete.";
+    } else {
+        BOOST_LOG_TRIVIAL(info) << "[Report] " << g_path_report.string() << "?data=" << _games[_currentGame].ReportDataPath().string();
     }
-
-    //Create viewer window.
-    Viewer *viewer = new Viewer(this, translate("LOOT: Report Viewer"), FromUTF8(ToFileURL(g_path_report.string() + "?data=" + _games[_currentGame].ReportDataPath().string())), pos, size, _settings);
-    viewer->Show();
-
-    BOOST_LOG_TRIVIAL(debug) << "Report display successful. Sorting process complete.";
 }
 
 void Launcher::OnEditMetadata(wxCommandEvent& event) {

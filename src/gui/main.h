@@ -60,6 +60,9 @@ public:
 	void OnQuit(wxCommandEvent& event);
 
     void OnClose(wxCloseEvent& event);
+
+    void SortPlugins();
+
 private:
     wxMenu * GameMenu;
     wxMenuItem * RedatePluginsItem;
